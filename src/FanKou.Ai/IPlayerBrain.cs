@@ -37,7 +37,7 @@ public sealed record BottomContext(
     ImmutableArray<Card> Locked,
     TrumpContext Trump);
 
-/// <summary>AI 能看到的公开信息。**不含**任何别家的手牌，也不含还没翻开的底牌。</summary>
+/// <summary>AI 能看到的公开信息。**不含**任何别家的手牌。</summary>
 public sealed record PublicBoardInfo(
     IReadOnlyList<int> RemainingCounts,
     IReadOnlyList<TrickPlay> CurrentTrick,
@@ -49,6 +49,16 @@ public sealed record PublicBoardInfo(
     int DeclarerTrickPoints,
     int TrickNumber)
 {
+    /// <summary>
+    /// 锅底那 8 张——**只有庄家拿得到**，别人一律是空的。
+    ///
+    /// 这不是偷看：那 8 张本来就是庄家自己挑着扣下去的，规则上他知道。
+    /// 之前这里一律不传，等于**让 AI 把自己埋的牌忘了**，很多推算做不了
+    /// （比如"我扣掉多少分就锁定胜局了"）。
+    /// 真正该藏的只有别家手牌。
+    /// </summary>
+    public IReadOnlyList<Card> Bottom { get; init; } = [];
+
     public bool TrickIsEmpty => CurrentTrick.Count == 0;
 
     /// <summary>本墩目前是谁最大（按出牌顺序），没人出牌时为 null。</summary>

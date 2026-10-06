@@ -67,5 +67,5 @@ public sealed class GameDriver
             _brains[pending.Actor],
             pending,
             Engine.Trump,
-            BrainDecider.Describe(Engine));
+            BrainDecider.Describe(Engine, pending.Actor));
 }

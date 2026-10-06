@@ -423,7 +423,7 @@ public sealed class GameController : IDisposable
             _brains[pending.Actor],
             pending,
             _engine.Trump,
-            BrainDecider.Describe(_engine));
+            BrainDecider.Describe(_engine, pending.Actor));
 
         AdvanceTo(_engine.Apply(command));
     }

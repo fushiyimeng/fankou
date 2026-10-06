@@ -1,3 +1,4 @@
+using FanKou.Core.Cards;
 using FanKou.Core.Game;
 using FanKou.Core.Trump;
 
@@ -74,10 +75,11 @@ public static class BrainDecider
     }
 
     /// <summary>
-    /// 从引擎读一份公开信息——**不含**别家手牌，也**不含**还没翻开的底牌。
+    /// 从引擎读一份公开信息——**不含**别家手牌。
     /// 叫主摆出来的明牌算公开信息，要给出去。
+    /// <paramref name="actor"/> 是正在做决策的那家，用来判断他能不能看到锅底。
     /// </summary>
-    public static PublicBoardInfo Describe(GameEngine engine) => new(
+    public static PublicBoardInfo Describe(GameEngine engine, Seat actor) => new(
         [.. Seats.All.Select(seat => engine.HandOf(seat).Count)],
         [.. engine.CurrentTrick],
         [.. engine.History],
@@ -86,7 +88,27 @@ public static class BrainDecider
         engine.DeclarerSeat,
         engine.DefenderTrickPoints,
         engine.DeclarerTrickPoints,
-        engine.TrickNumber);
+        engine.TrickNumber)
+    {
+        Bottom = KnownBottom(engine, actor),
+    };
+
+    /// <summary>
+    /// 庄家看得到锅底，因为那 8 张是他自己挑的。但**必须是他真正拿过之后**才算数——
+    /// 首局的反主发生在换底牌**之前**（文档第 88 行），那会儿锅底还没人动过，
+    /// 泄漏出去就是作弊。所以只在出牌阶段及以后给。
+    /// </summary>
+    private static IReadOnlyList<Card> KnownBottom(GameEngine engine, Seat actor)
+    {
+        if (!engine.HasDeclarer || engine.DeclarerSeat != actor)
+        {
+            return [];
+        }
+
+        return engine.Phase is GamePhase.Playing or GamePhase.Settling or GamePhase.RoundOver
+            ? [.. engine.Bottom]
+            : [];
+    }
 
     private static TrumpContext Require(TrumpContext? trump) =>
         trump ?? throw new InvalidOperationException("还没定主就开始出牌了");

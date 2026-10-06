@@ -96,8 +96,11 @@ internal static class CountingPlayScorer
     }
 
     /// <summary>
-    /// 这一手外面还有几手能压。
-    /// 困难档会先用空门推断剔掉假威胁：对头要是都没主牌了，外面剩的主就杀不到我。
+    /// 这一手外面**预计**还有几手能压。
+    ///
+    /// 用 <see cref="CardMemory.ExpectedBeating"/> 而不是原始张数——锅底那 8 张
+    /// 谁也打不出来，算成威胁会让 AI 虚惊，而且越到残局虚高得越厉害。
+    /// 困难档另外还会用空门推断剔掉假威胁：对头要是都没主牌了，外面剩的主就杀不到我。
     /// </summary>
     private static double ThreatOf(
         CardCombination candidate,
@@ -107,7 +110,7 @@ internal static class CountingPlayScorer
     {
         var countTrumps = model is null || !OpponentsOutOfTrumps(context, model);
 
-        return memory.UnseenBeating(candidate, context.Lead!, context.Trump, countTrumps);
+        return memory.ExpectedBeating(candidate, context.Lead!, context.Trump, countTrumps);
     }
 
     /// <summary>
@@ -148,8 +151,9 @@ internal static class CountingPlayScorer
 
             // 记牌：这一手领出去外面一手都压不住，那就是白拿的，加分。
             // 困难档还会用空门推断判断对头有没有主牌——都没主了，这门就随便领。
+            // 同样用"预计"而不是原始张数：锅底里的牌压不住我。
             var countTrumps = model is null || !OpponentsOutOfTrumps(context, model);
-            if (memory.UnseenBeating(candidate, candidate, trump, countTrumps) == 0)
+            if (memory.ExpectedBeating(candidate, candidate, trump, countTrumps) == 0)
             {
                 value += 15;
             }

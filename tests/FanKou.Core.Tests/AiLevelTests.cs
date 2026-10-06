@@ -10,10 +10,11 @@ namespace FanKou.Core.Tests;
 /// 比强度用的是"配对"打法：同一个种子下，一副牌打两遍，A 和 B 各坐一次东西。
 /// 不配对的话发牌运气会盖过实力差距——试过，同一对档位换个种子区间能差出 30%。
 ///
-/// 实测（80 个种子配对）：
+/// 实测（判据和样本量见各条测试的注释）：
 ///   简单 vs 入门：入门一分没拿过，差距大得没法比
-///   普通 vs 简单：+2.8%
-///   困难 vs 普通：+0.6%（很小，见下面的说明）
+///   困难 vs 普通：**打平**（1000 个种子配对、约 1.2 万局，50.0% 区间 49.1~50.9）
+///     —— 笔记里那个 +0.6% 在这个样本量下复现不出来
+///   普通 vs 简单：笔记里记的是 +2.8%（换尺子之前量的，还没用新工具复测）
 /// </summary>
 public class AiLevelTests
 {
@@ -137,24 +138,30 @@ public class AiLevelTests
     [Fact]
     public void 困难档不弱于普通档()
     {
-        // 说明：困难档比普通档多的那点东西（空门推断）实测只值 +0.6%，
-        // 小到换个种子区间就可能翻面。所以这里只断言"不倒退"，
-        // 不去断言"明显更强"——那是自欺欺人。
-        // 真要让困难档明显强出一截，得换思路（比如往前算一两步），不是往上加规则能解决的。
-        const int matches = 60;
+        // 判据换掉了：以前用的是"连打若干局之后看最后打到几级"，那个被
+        // "谁先冲到 A 结束房间"主导，噪声大到能把一次微小改动翻出 3.6%（实测踩到），
+        // 于是只能靠断言"不倒退 3%"勉强站着。
+        //
+        // 现在用 PairedEvaluation 的判据——**每一局谁把等级推进得更多**，
+        // 细得多，也稳得多。实测（1000 个种子配对、约 1.2 万局）：
+        //   困难 50.0%，区间 49.1% ~ 50.9%
+        // 也就是**和普通档打平**。笔记里记的 +0.6% 在那个样本量下复现不出来。
+        //
+        // 困难档比普通档多的只有空门推断，而它换不来可测的收益——这也印证了
+        // 一路下来的结论：在这套"一层打分"的模型上继续加东西，收益要么淹没在噪声里、
+        // 要么干脆是零。真想更强得换思路（往前算），不是加规则。
+        //
+        // 所以这里只断言"没有明显倒退"，不去断言"更强"——后者是自欺欺人。
+        // 要正经测强度用 tools/FanKou.Bench，判据和这里是同一份代码。
+        const int seeds = 200;
+        const int rounds = 8;
 
-        var hard = 0;
-        var normal = 0;
-
-        for (var seed = 1; seed <= matches; seed++)
-        {
-            var (strong, weak) = PlayPaired(seed, AiLevel.Hard, AiLevel.Normal);
-            hard += strong;
-            normal += weak;
-        }
+        var result = PairedEvaluation.Run(AiLevel.Hard, AiLevel.Normal, seeds, rounds);
+        var (low, _) = result.Interval;
 
         Assert.True(
-            hard >= normal * 0.97,
-            $"困难档不该比普通档明显差：困难 {hard} vs 普通 {normal}");
+            low > 0.45,
+            $"困难档不该比普通档明显差：胜率 {result.WinRate:P1}，区间下限 {low:P1}，"
+            + $"有效 {result.Decisive} 局（困难赢 {result.AWins} / 普通赢 {result.BWins}）");
     }
 }
