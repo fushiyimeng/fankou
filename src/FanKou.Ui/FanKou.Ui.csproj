@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\FanKou.Core\FanKou.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 「规则说明」里的详细版就是项目根目录那份《玩法说明.md》，整个嵌进程序集。
+         这样文档只有一份——改了 md 就自动跟着变，不会出现程序和文档两边说法打架。 -->
+    <EmbeddedResource Include="..\..\玩法说明.md" LogicalName="FanKou.Ui.rules-full.md" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 这套控件全部是代码里手写的，不进设计器，不需要给每个公开属性配序列化特性。 -->
+    <NoWarn>$(NoWarn);WFO1000</NoWarn>
+  </PropertyGroup>
+
+</Project>

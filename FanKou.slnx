@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FanKou.Ai/FanKou.Ai.csproj" />
+    <Project Path="src/FanKou.App/FanKou.App.csproj" />
+    <Project Path="src/FanKou.Core/FanKou.Core.csproj" />
+    <Project Path="src/FanKou.Ui/FanKou.Ui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FanKou.Core.Tests/FanKou.Core.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/FanKou.Trace/FanKou.Trace.csproj" />
+  </Folder>
+</Solution>

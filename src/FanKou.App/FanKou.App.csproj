@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\FanKou.Core\FanKou.Core.csproj" />
+    <ProjectReference Include="..\FanKou.Ai\FanKou.Ai.csproj" />
+    <ProjectReference Include="..\FanKou.Ui\FanKou.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 规则开关跟着 exe 走，用户改了 rules.json 就能改玩法，不用重新编译。 -->
+    <None Include="..\..\rules.json" Link="rules.json" CopyToOutputDirectory="PreserveNewest" />
+
+    <!-- 卡牌样式放在 exe 旁边的 skins 文件夹里，这份说明一起带过去。 -->
+    <None Include="..\..\skins\说明.txt" Link="skins\说明.txt" CopyToOutputDirectory="PreserveNewest" />
+
+    <!-- 窗口标题栏 / 任务栏那个图标。嵌进程序集里，运行时取出来设给 Form——
+         单文件发布时磁盘上根本找不到这个 .ico，所以不能靠"exe 旁边放一个"。 -->
+    <EmbeddedResource Include="..\..\ico\卡牌.ico" LogicalName="FanKou.App.app.ico" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- 图标放项目根目录的 ico\ 里，跟 rules.json、skins 一个待遇。
+         用的是 ico\卡牌.ico——那一个是**多尺寸**的（16/32/48/64/128/256 装在一个容器里），
+         由 ico\ 下那六张单尺寸文件合并而来。分开的文件 Windows 不认，必须有这一份合并的。
+         这一行只管把图标嵌进 exe（资源管理器、快捷方式、任务栏用它）。
+         窗口标题栏那个是运行时另外设的，见 MainForm 的构造函数。 -->
+    <ApplicationIcon>..\..\ico\卡牌.ico</ApplicationIcon>
+
+    <!-- 只跑 Windows 10 / 11（64 位），不做更老的系统。
+         没有把 TFM 写成 net10.0-windows10.0.17763.0，是因为那样会连锁改掉所有输出路径，
+         而 .NET 10 的桌面运行时本身就已经要求 Windows 10 1607 以上了，实际效果一样。 -->
+  </PropertyGroup>
+
+</Project>

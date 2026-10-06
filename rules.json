@@ -1,0 +1,9 @@
+{
+  "JokerPairChainIsTractor": true,
+  "TractorUsesNaturalOrder": true,
+  "PairFillerPolicy": "TrumpOnlyWhenVoid",
+  "TractorFollowPolicy": "StructurePreserving",
+  "AllowThrows": true,
+  "AllowCounterCalls": true,
+  "AllowNoTrumpCalls": true
+}
