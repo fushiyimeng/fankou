@@ -1,0 +1,14 @@
+# 默认交给 git 按文本处理
+* text=auto
+
+# 这两个的行尾是硬要求，不能跟着 core.autocrlf 变：
+#   .sh 要 LF —— N100 上是 bash 在跑，带 \r 会直接报 "$'\r': command not found"
+#   .bat 要 CRLF —— cmd.exe 拿 LF 的批处理会把每行拆错
+*.sh  text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制，别去动它
+*.png  binary
+*.ico  binary
+*.wasm binary
