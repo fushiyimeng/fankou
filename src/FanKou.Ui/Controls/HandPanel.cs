@@ -296,6 +296,14 @@ public sealed class HandPanel : Control
         var rowGap = rows > 1 ? 20 : 0;
         var usable = Math.Max(40, Height - 14 - (rowGap * (rows - 1)));
         var cardHeight = Math.Max(28, usable / rows);
+
+        // 选中的牌要往上浮。第一行头顶必须留出这段高度，否则浮起来的那一截会被切掉——
+        // 而牌的左上角正好是点数，一被切就认不出这是什么牌了。留出空间后牌相应矮一点点。
+        var raiseOffset = Math.Max(8, cardHeight / 7);
+        usable = Math.Max(40, usable - raiseOffset);
+        cardHeight = Math.Max(28, usable / rows);
+        raiseOffset = Math.Max(8, cardHeight / 7);
+
         var cardWidth = Math.Max(20, (int)Math.Round(cardHeight * _renderer.Theme.CardAspect));
 
         var available = Math.Max(60, Width - 16);
@@ -307,8 +315,6 @@ public sealed class HandPanel : Control
                 (int)(cardWidth * 0.62),
                 Math.Max(8, (available - cardWidth) / (perRow - 1)));
 
-        var raiseOffset = Math.Max(8, cardHeight / 7);
-
         _hitBoxes.Clear();
 
         var index = 0;
@@ -317,7 +323,7 @@ public sealed class HandPanel : Control
             var inThisRow = Math.Min(perRow, count - index);
             var totalWidth = cardWidth + (step * (inThisRow - 1));
             var startX = Math.Max(8, (Width - totalWidth) / 2);
-            var y = 4 + (row * (cardHeight + rowGap));
+            var y = raiseOffset + 4 + (row * (cardHeight + rowGap));
 
             for (var i = 0; i < inThisRow; i++)
             {

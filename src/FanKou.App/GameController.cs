@@ -33,10 +33,16 @@ public sealed class GameController : IDisposable
 
     private const int CardsPerSeat = 25;
 
+    /// <summary>轮到人出牌之后，多少秒不出就替他出一手。</summary>
+    private const int HumanTimeoutSeconds = 60;
+
     private IReadOnlyDictionary<Seat, IPlayerBrain> _brains;
     private readonly System.Windows.Forms.Timer _aiTimer = new();
     private readonly System.Windows.Forms.Timer _pauseTimer = new();
     private readonly System.Windows.Forms.Timer _dealTimer = new();
+    private readonly System.Windows.Forms.Timer _humanTimer = new();
+
+    private int _humanSecondsLeft;
     private readonly List<string> _log = [];
 
     private GameEngine _engine;
@@ -101,6 +107,9 @@ public sealed class GameController : IDisposable
 
         _dealTimer.Interval = DealRoundMs;
         _dealTimer.Tick += OnDealTick;
+
+        _humanTimer.Interval = 1000;
+        _humanTimer.Tick += OnHumanTick;
     }
 
     public Seat HumanSeat { get; }
@@ -119,8 +128,49 @@ public sealed class GameController : IDisposable
     /// <summary>换一批脑子（改人机难度用）。下一个人做决策就按新的走，不用重开一盘。</summary>
     public void UpdateBrains(IReadOnlyDictionary<Seat, IPlayerBrain> brains) => _brains = brains;
 
-    /// <summary>开发自检用：人类座位也交给 AI，跑起来不需要人操作。</summary>
-    public bool AutoPlayHuman { get; init; }
+    /// <summary>
+    /// 托管：人类座位也交给 AI 打。开发自检（--autoplay）和「打一半有事」都用它。
+    /// 用 <see cref="SetAutoPlay"/> 改——改的时候会把正卡着的那一步推起来。
+    /// </summary>
+    public bool AutoPlayHuman { get; private set; }
+
+    /// <summary>轮到你出牌的读秒；0 表示没在读秒。</summary>
+    public int HumanSecondsLeft => _humanSecondsLeft;
+
+    /// <summary>托管开关变了。</summary>
+    public event Action? AutoPlayChanged;
+
+    /// <summary>读秒跳了一格。界面只需要重画那一行倒计时，不必整屏重来。</summary>
+    public event Action? CountdownChanged;
+
+    /// <summary>
+    /// 交出去 / 收回来。正卡在等你出手的时候切过去，会立刻推一把，
+    /// 不用等下一次节拍——不然点了「托管」还得干等。
+    /// </summary>
+    public void SetAutoPlay(bool on)
+    {
+        if (AutoPlayHuman == on)
+        {
+            return;
+        }
+
+        AutoPlayHuman = on;
+        StopHumanCountdown();
+
+        Status = on
+            ? "已交给电脑代打，点「收回托管」随时收回来"
+            : "收回托管，还是你自己打";
+
+        AutoPlayChanged?.Invoke();
+
+        if (on && _humanPending is not null)
+        {
+            Pump();
+            return;
+        }
+
+        Changed?.Invoke();
+    }
 
     public GameEngine Engine => _engine;
 
@@ -196,6 +246,8 @@ public sealed class GameController : IDisposable
     {
         if (_humanPending is PendingDecision.NeedPlay)
         {
+            StopHumanCountdown();
+
             // 先存档再出牌：这一份就是「撤回」能退回去的那个点，
             // 存的是"已经轮到你了、牌还没出手"的状态。
             _undoStack.Add(new UndoPoint(
@@ -237,6 +289,7 @@ public sealed class GameController : IDisposable
         _aiTimer.Stop();
         _pauseTimer.Stop();
         _dealTimer.Stop();
+        StopHumanCountdown();
 
         var point = _undoStack[^1];
         _undoStack.RemoveAt(_undoStack.Count - 1);
@@ -321,6 +374,8 @@ public sealed class GameController : IDisposable
         _pauseTimer.Dispose();
         _dealTimer.Stop();
         _dealTimer.Dispose();
+        _humanTimer.Stop();
+        _humanTimer.Dispose();
     }
 
     private void AdvanceTo(IReadOnlyList<GameEvent> events)
@@ -365,6 +420,7 @@ public sealed class GameController : IDisposable
     private void Pump()
     {
         _humanPending = null;
+        StopHumanCountdown();
 
         if (_engine.Phase is GamePhase.RoundOver or GamePhase.RoomOver)
         {
@@ -400,6 +456,7 @@ public sealed class GameController : IDisposable
             _humanPending = pending;
             Status = Prompt(pending);
             HumanTurnChanged?.Invoke();
+            StartHumanCountdown(pending);
             Changed?.Invoke();
             return;
         }
@@ -426,6 +483,63 @@ public sealed class GameController : IDisposable
             BrainDecider.Describe(_engine, pending.Actor));
 
         AdvanceTo(_engine.Apply(command));
+    }
+
+    /// <summary>
+    /// 轮到人出牌就开始读秒。**只对出牌兜底**——叫主和换底要自己拿主意，
+    /// 电脑替你定了不合适（真有事请点「托管」，那是明着交出去）。
+    /// </summary>
+    private void StartHumanCountdown(PendingDecision pending)
+    {
+        StopHumanCountdown();
+
+        if (pending is not PendingDecision.NeedPlay)
+        {
+            return;
+        }
+
+        _humanSecondsLeft = HumanTimeoutSeconds;
+        _humanTimer.Start();
+    }
+
+    private void StopHumanCountdown()
+    {
+        _humanTimer.Stop();
+        _humanSecondsLeft = 0;
+    }
+
+    private void OnHumanTick(object? sender, EventArgs e)
+    {
+        if (_humanPending is not PendingDecision.NeedPlay)
+        {
+            StopHumanCountdown();
+            return;
+        }
+
+        _humanSecondsLeft--;
+
+        if (_humanSecondsLeft > 0)
+        {
+            CountdownChanged?.Invoke();
+            return;
+        }
+
+        StopHumanCountdown();
+
+        // 超时了，用你自己座位那副脑子替你出一手。
+        // 走 SubmitPlay，所以这一手照样能按「撤回」退回来。
+        _log.Add($"⚠ 超过 {HumanTimeoutSeconds} 秒没动作，电脑替你出了一手");
+
+        var command = BrainDecider.Decide(
+            _brains[HumanSeat],
+            _humanPending,
+            _engine.Trump,
+            BrainDecider.Describe(_engine, HumanSeat));
+
+        if (command is PlayCards play)
+        {
+            SubmitPlay(play.Cards);
+        }
     }
 
     private void RecordEvents(IReadOnlyList<GameEvent> events)

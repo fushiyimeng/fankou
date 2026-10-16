@@ -13,6 +13,48 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // 出事了至少留个文件下来。这游戏本来没有任何日志落地——
+        //「牌局记录」也只是内存里的一份，程序一关就没了，事后无从查起。
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => WriteCrashLog(e.ExceptionObject as Exception);
+        Application.ThreadException += (_, e) => WriteCrashLog(e.Exception);
+
+        try
+        {
+            Run(args);
+        }
+        catch (Exception ex)
+        {
+            WriteCrashLog(ex);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 把没接住的异常追加到 exe 旁边的 crash.log。
+    /// 写在那儿是因为这程序是绿色版，用户知道它放在哪。
+    /// </summary>
+    private static void WriteCrashLog(Exception? ex)
+    {
+        if (ex is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(AppContext.BaseDirectory, "crash.log"),
+                $"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss} ====={Environment.NewLine}"
+                + $"{ex}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (Exception)
+        {
+            // 连日志都写不出来就算了，别在崩溃路径上再抛一个。
+        }
+    }
+
+    private static void Run(string[] args)
+    {
         // 开发用：把各种牌画成一张图存下来，肉眼检查渲染效果。
         //   FanKou.App.exe --render-sheet 牌面.png [样式目录]
         if (args.Length > 0 && args[0] == "--render-sheet")
@@ -33,9 +75,10 @@ internal static class Program
         }
 
         // 开发用：把换底牌的对话框渲染成图片，检查排版。
+        //   FanKou.App.exe --render-swap 换底牌.png [样式根目录]
         if (args.Length > 0 && args[0] == "--render-swap")
         {
-            RenderSwap(args.Length > 1 ? args[1] : "swap.png");
+            RenderSwap(args);
             return;
         }
 
@@ -73,7 +116,8 @@ internal static class Program
             seat => seat,
             _ => (IPlayerBrain)new SimpleBrain(rng));
 
-        var controller = new GameController(engine, brains, Seat.South, options) { AutoPlayHuman = true };
+        var controller = new GameController(engine, brains, Seat.South, options);
+        controller.SetAutoPlay(true);
 
         var played = 0;
         controller.RoundFinished += summary =>
@@ -99,11 +143,20 @@ internal static class Program
         Application.Run();
     }
 
-    private static void RenderSwap(string output)
+    private static void RenderSwap(string[] args)
     {
-        using var renderer = new CardRenderer(CardSkin.BuiltIn);
+        var output = args.Length > 1 ? args[1] : "swap.png";
+
+        // 指定样式根目录就用那儿发现的外挂样式，否则扫默认位置。
+        // 有外挂样式时取最后一套——头一套永远是「程序自带」，
+        // 这样才能检查"换上真实牌面图之后"的排版，而不只是自带画法。
+        var skins = args.Length > 2 ? CardSkin.Discover([args[2]]) : CardSkin.Discover();
+        var skin = skins.Count > 1 ? skins[^1] : skins[0];
+
+        using var renderer = new CardRenderer(skin);
         var (hand, bottom, locked) = DemoState.SwapSample();
-        using var dialog = BottomSwapDialog.CreateForPreview(renderer, hand, bottom, locked);
+        // 先选中开头 3 张，好检查"浮起来"的那一截会不会被切掉。
+        using var dialog = BottomSwapDialog.CreateForPreview(renderer, hand, bottom, locked, selectFirst: 3);
 
         dialog.Show();
         Application.DoEvents();

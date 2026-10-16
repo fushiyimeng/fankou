@@ -106,13 +106,26 @@ public sealed class BottomSwapDialog : Form
 
     public IReadOnlyList<Card> Discards { get; private set; } = [];
 
-    /// <summary>开发用：造一个对话框出来渲染成图片检查排版，正式流程走 <see cref="Choose"/>。</summary>
+    /// <summary>
+    /// 开发用：造一个对话框出来渲染成图片检查排版，正式流程走 <see cref="Choose"/>。
+    /// <paramref name="selectFirst"/> 预先选中开头几张，用来检查牌浮起来会不会被切掉。
+    /// </summary>
     public static BottomSwapDialog CreateForPreview(
         CardRenderer renderer,
         IReadOnlyList<Card> hand,
         IReadOnlyList<Card> bottom,
-        IReadOnlyList<Card> locked) =>
-        new(renderer, hand, bottom, locked);
+        IReadOnlyList<Card> locked,
+        int selectFirst = 0)
+    {
+        var dialog = new BottomSwapDialog(renderer, hand, bottom, locked);
+
+        if (selectFirst > 0)
+        {
+            dialog._hand.Select(dialog._hand.Hand.Take(selectFirst));
+        }
+
+        return dialog;
+    }
 
     /// <summary>返回扣下去的那 8 张。没选够 8 张就返回空。</summary>
     public static IReadOnlyList<Card> Choose(

@@ -24,6 +24,7 @@ public sealed class MainForm : Form
     private readonly Button _hintButton;
     private readonly Button _undoButton;
     private readonly Button _clearButton;
+    private readonly Button _autoButton;
     private readonly MenuStrip _menu;
     private readonly ToolStripMenuItem _skinMenu;
     private readonly ToolStripMenuItem _opponentMenu;
@@ -89,7 +90,7 @@ public sealed class MainForm : Form
         _turnLabel = new Label
         {
             Dock = DockStyle.Right,
-            Width = 160,
+            Width = 220,
             TextAlign = ContentAlignment.MiddleRight,
             Padding = new Padding(0, 0, 12, 0),
             Font = new Font("Microsoft YaHei", 16f, FontStyle.Bold, GraphicsUnit.Pixel),
@@ -100,6 +101,7 @@ public sealed class MainForm : Form
         _hintButton = MakeButton("提示", 90, OnHintClick);
         _undoButton = MakeButton("撤回", 90, OnUndoClick);
         _clearButton = MakeButton("清空", 90, (_, _) => _hand.ClearSelection());
+        _autoButton = MakeButton("托管", 100, (_, _) => ToggleAutoPlay());
 
         BuildLayout();
 
@@ -217,11 +219,11 @@ public sealed class MainForm : Form
             Margin = new Padding(0),
         };
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 420));
+        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 530));
 
         var leftInfo = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
         leftInfo.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        leftInfo.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
+        leftInfo.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
         leftInfo.Controls.Add(_statusLabel, 0, 0);
         leftInfo.Controls.Add(_turnLabel, 1, 0);
 
@@ -236,6 +238,7 @@ public sealed class MainForm : Form
         buttons.Controls.Add(_hintButton);
         buttons.Controls.Add(_undoButton);
         buttons.Controls.Add(_clearButton);
+        buttons.Controls.Add(_autoButton);
 
         bottom.Controls.Add(leftInfo, 0, 0);
         bottom.Controls.Add(buttons, 1, 0);
@@ -315,6 +318,12 @@ public sealed class MainForm : Form
         controller.Changed += OnControllerChanged;
         controller.HumanTurnChanged += OnHumanTurnChanged;
         controller.RoundFinished += OnRoundFinished;
+
+        // 托管开关一翻，按钮文字和状态栏都要跟着走。
+        controller.AutoPlayChanged += OnControllerChanged;
+
+        // 读秒每秒跳一次，只让那一格重画，不整屏重来。
+        controller.CountdownChanged += UpdateTurnLabel;
         return controller;
     }
 
@@ -358,16 +367,20 @@ public sealed class MainForm : Form
         // 所以它的灰亮必须放在下面那个"不是你的回合就全灰掉"的早退**之前**。
         _undoButton.Enabled = _controller?.CanUndo == true;
 
+        // 「托管」跟「撤回」一样，随时能按下也能收回，所以也放在早退之前。
+        _autoButton.Enabled = _controller is not null;
+        _autoButton.Text = _controller?.AutoPlayHuman == true ? "收回托管" : "托管";
+
         if (_controller?.HumanPending is not PendingDecision.NeedPlay)
         {
             _playButton.Enabled = false;
             _hintButton.Enabled = false;
             _clearButton.Enabled = false;
-            _turnLabel.Text = string.Empty;
+            UpdateTurnLabel();
             return;
         }
 
-        _turnLabel.Text = "● 你的回合";
+        UpdateTurnLabel();
         _clearButton.Enabled = _hand.SelectedCards.Count > 0;
         _hintButton.Enabled = _controller.HumanCandidates.Count > 0;
 
@@ -382,6 +395,27 @@ public sealed class MainForm : Form
                 : _renderer.Theme.TextWarning;
         }
     }
+
+    /// <summary>回合提示 + 出牌读秒。只动这一格，别牵动整屏。</summary>
+    private void UpdateTurnLabel()
+    {
+        // 开发预览（--render-ui）时没有 controller，这一格是 LoadDemoState 摆好的，别去动它。
+        if (_controller is null)
+        {
+            return;
+        }
+
+        if (_controller.HumanPending is not PendingDecision.NeedPlay)
+        {
+            _turnLabel.Text = string.Empty;
+            return;
+        }
+
+        var left = _controller.HumanSecondsLeft;
+        _turnLabel.Text = left > 0 ? $"● 你的回合 ({left})" : "● 你的回合";
+    }
+
+    private void ToggleAutoPlay() => _controller?.SetAutoPlay(!_controller.AutoPlayHuman);
 
     private void OnHumanTurnChanged()
     {
