@@ -7,6 +7,14 @@ set -u
 
 DIR=${1:-/opt/go-bot/fankou}
 
+# 传上来的东西用完就删：那个服务端二进制 97MB、网页包 15MB，
+# 留在 /tmp 里没人管，攒几次就把磁盘啃掉一块。
+# 用 trap 是为了**失败也清**——之前就是只写成功路径，结果失败一次就留一堆。
+cleanup() {
+    rm -f /tmp/fankou-web.tgz /tmp/FanKou.Server /tmp/nginx.conf /tmp/docker-compose.yml
+}
+trap cleanup EXIT
+
 echo "=== 1/5 网页 ==="
 mkdir -p "$DIR/wwwroot"
 rm -rf "${DIR:?}/wwwroot"/*
