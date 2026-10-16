@@ -18,5 +18,17 @@ public readonly record struct Card(Suit Suit, Rank Rank, byte Copy)
     /// <summary>分值：5 = 5 分，10 / K = 10 分，其余 0 分。副牌与主牌同价。</summary>
     public int Points => Rank.Points();
 
+    /// <summary>
+    /// 按 <see cref="Id"/> 还原一张牌。联机时两边只传这个整数，不传整个对象。
+    /// 注意 Joker 是第 5 个花色（枚举值 4），大王会越过一个 32 的边界，
+    /// 所以不能简单地用 <c>id / 32</c> 反算花色。
+    /// </summary>
+    public static Card FromId(int id)
+    {
+        var suit = Math.Min(id / 32, 4);
+        var rem = id - (suit * 32);
+        return new Card((Suit)suit, (Rank)(rem / 2), (byte)(rem % 2));
+    }
+
     public override string ToString() => CardText.Format(this);
 }

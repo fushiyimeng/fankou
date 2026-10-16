@@ -1,0 +1,82 @@
+@inject HttpClient Http
+
+@*
+    规则说明。详细版直接用构建时复制进 wwwroot 的《玩法说明.md》，
+    不另写一份文案——改了根目录那份，这里跟着变。
+*@
+
+<div class="overlay">
+    <div class="dialog rules-dialog">
+        <h2 class="dialog-title">规则说明</h2>
+
+        <div class="rules-body">
+            <pre class="rules-pre">@( _detail ? _fullText : Brief )</pre>
+        </div>
+
+        <div class="dialog-actions">
+            <button class="btn" @onclick="ToggleDetail">@(_detail ? "返回简略版" : "看详细的玩法介绍")</button>
+            <button class="btn primary" @onclick="() => OnClose.InvokeAsync()">关闭</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool _detail;
+    private string? _fullText;
+
+    private const string Brief = @"双扣（方扣）· 4 人两副牌 108 张。对家一伙：东西一队、南北一队。
+
+一局：叫主 → 换底牌 → 出牌 25 墩 → 算分定升降。
+
+· 主牌 = 主花色全部 + 大小王 + 所有花色的级牌
+· 副级牌算主牌，不算它原来的花色（主黑桃打 5 时 ♣5 是主，出梅花不用给）
+· 有该花色必须给该花色；跟对子/拖拉机时这个花色一张都没有，就得垫主牌
+· 闲家捡分、庄家扣分。5 是 5 分，10 和 K 各 10 分，整副共 200 分
+· 闲家 120 分升一级、200 分升两级；85~114 分触发下一局抢主
+· 底牌只有闲家赢下最后一手才计分，倍率看最后一手：单张 ×2、对子 ×4、连对 ×8
+· 出牌逆时针（东→北→西→南），发牌顺时针，两个方向是反的
+· 顶牌 AAK / AAQ 算甩牌，必然合法
+
+详细玩法（含打法思路）点下面的按钮。";
+
+    private async Task ToggleDetail()
+    {
+        if (!_detail && _fullText is null)
+        {
+            try
+            {
+                var markdown = await Http.GetStringAsync("rules-full.md");
+                _fullText = StripMarkdown(markdown);
+            }
+            catch (Exception)
+            {
+                _fullText = "详细玩法读不出来（rules-full.md 没找到）。";
+            }
+        }
+
+        _detail = !_detail;
+    }
+
+    /// <summary>Markdown 的 # / ** / --- 拿掉就是纯文本，省得再写一份。</summary>
+    private static string StripMarkdown(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var result = new List<string>(lines.Length);
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart('#').Replace("**", string.Empty);
+            if (trimmed.Trim() is "---" or "***")
+            {
+                result.Add(string.Empty);
+                continue;
+            }
+
+            result.Add(trimmed);
+        }
+
+        return string.Join('\n', result);
+    }
+}

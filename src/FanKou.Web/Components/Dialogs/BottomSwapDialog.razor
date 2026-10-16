@@ -1,0 +1,94 @@
+@*
+    换底牌：锅底 8 张先摊出来给你看，再合进手牌凑成 33 张，从这 33 张里挑 8 张扣回去。
+*@
+
+<div class="overlay">
+    <div class="dialog swap-dialog">
+        <h2 class="dialog-title">换底牌 —— 先看锅底，再从 33 张里挑 8 张扣回去</h2>
+
+        <div class="bottom-strip">
+            <div class="strip-caption">锅底这 @Pending.Bottom.Length 张（已经合进下面的手牌里一起挑，蓝边的就是它们）</div>
+            <div class="strip-note">带金色锁的是叫主的明牌，不能扣</div>
+            <div class="strip-cards">
+                @foreach (var card in Pending.Bottom)
+                {
+                    <span class="mini-card marked"><CardView Card="card" Skin="Skin" /></span>
+                }
+            </div>
+        </div>
+
+        <div class="count-line @(_selected.Count == 8 ? "ready" : "")">@CountText</div>
+
+        <HandPanel Cards="_pool"
+                   Skin="Skin"
+                   Selected="_selected"
+                   LockedIds="_lockedIds"
+                   MarkedIds="_markedIds"
+                   RowsOverride="2"
+                   OnToggle="Toggle" />
+
+        <div class="dialog-actions">
+            <button class="btn" @onclick="Reselect">重选</button>
+            <button class="btn primary" disabled="@(_selected.Count != 8)" @onclick="Confirm">扣这 8 张</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public PendingDecision.NeedBottomSwap Pending { get; set; } = null!;
+
+    [Parameter] public CardAssetSet? Skin { get; set; }
+
+    /// <summary>本局主牌上下文。桌面版换底时传的是 null（不按主牌归堆），这里改成传主牌，
+    /// 跟上面主界面的手牌一致——挑底牌时更需要"主牌都在哪"一目了然。</summary>
+    [Parameter] public TrumpContext? Trump { get; set; }
+
+    [Parameter] public EventCallback<IReadOnlyList<Card>> OnConfirm { get; set; }
+
+    private IReadOnlyList<Card> _pool = [];
+    private HashSet<int> _selected = [];
+    private HashSet<int> _lockedIds = [];
+    private HashSet<int> _markedIds = [];
+
+    protected override void OnParametersSet()
+    {
+        _pool = CardSorter.ForDisplay(Pending.Pool, Trump);
+        _lockedIds = Pending.Locked.Select(c => c.Id).ToHashSet();
+        _markedIds = Pending.Bottom.Select(c => c.Id).ToHashSet();
+
+        // 手牌重排时把已经不在牌池里的选中项丢掉。
+        _selected.RemoveWhere(id => _pool.All(c => c.Id != id));
+    }
+
+    private string CountText => _selected.Count == 8
+        ? "已经选够 8 张，可以扣了"
+        : $"已选 {_selected.Count} / 8 张。（可挑范围：手上 25 张 + 锅底 8 张）";
+
+    private Task Toggle(Card card)
+    {
+        if (_lockedIds.Contains(card.Id))
+        {
+            return Task.CompletedTask;
+        }
+
+        if (!_selected.Add(card.Id))
+        {
+            _selected.Remove(card.Id);
+        }
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void Reselect()
+    {
+        _selected.Clear();
+        StateHasChanged();
+    }
+
+    private Task Confirm()
+    {
+        var discards = _pool.Where(c => _selected.Contains(c.Id)).ToList();
+        return discards.Count == 8 ? OnConfirm.InvokeAsync(discards) : Task.CompletedTask;
+    }
+}

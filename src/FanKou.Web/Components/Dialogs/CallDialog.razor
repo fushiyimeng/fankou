@@ -1,0 +1,80 @@
+@*
+    叫主 / 反主。必须叫的时候（CanPass=false）不给关，必须选一个。
+*@
+
+<div class="overlay">
+    <div class="dialog call-dialog">
+        <h2 class="dialog-title">@(Pending.IsCounter ? "反主" : "叫主")</h2>
+        <p class="dialog-hint">@HintText</p>
+
+        @if (SecondsLeft > 0)
+        {
+            <p class="dialog-countdown">还有 @SecondsLeft 秒，到点电脑替你定</p>
+        }
+
+        <div class="option-list">
+            @for (var i = 0; i < Pending.Options.Count; i++)
+            {
+                var index = i;
+                var option = Pending.Options[i];
+
+                <button class="option @(_selected == index ? "selected" : "")" @onclick="() => _selected = index">
+                    <span class="option-text">
+                        <span class="option-title">@option.Describe()</span>
+                        <span class="option-sub">@SpecText(option.Kind)</span>
+                    </span>
+                    <span class="option-cards">
+                        @foreach (var card in option.ShowCards)
+                        {
+                            <span class="mini-card"><CardView Card="card" Skin="Skin" /></span>
+                        }
+                    </span>
+                </button>
+            }
+        </div>
+
+        <div class="dialog-actions">
+            @if (Pending.CanPass)
+            {
+                <button class="btn" @onclick="() => Confirm(null)">@(Pending.IsCounter ? "不反" : "让队友叫")</button>
+            }
+
+            <button class="btn primary" disabled="@(_selected < 0)" @onclick="() => Confirm(Pending.Options[_selected])">
+                @(Pending.IsCounter ? "就反这个" : "就这样叫")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public PendingDecision.NeedCall Pending { get; set; } = null!;
+
+    [Parameter] public CardAssetSet? Skin { get; set; }
+
+    /// <summary>还剩几秒自动替你定。0 表示没有在读秒。</summary>
+    [Parameter] public int SecondsLeft { get; set; }
+
+    [Parameter] public EventCallback<CallOption?> OnConfirm { get; set; }
+
+    private int _selected = -1;
+
+    // 默认选规格最高那个（CallFinder 的输出是按优先级升序的）。
+    protected override void OnParametersSet() => _selected = Pending.Options.Count - 1;
+
+    private string HintText => Pending.IsCounter
+        ? "对手已经叫了。你可以用更高的规格把主牌抢过来，不反也行。"
+        : Pending.CanPass
+            ? "你看得出来怎么叫，也可以让队友来叫（有牌必须叫，队友叫得起才让得出去）。"
+            : "有牌必须叫，选一个吧。";
+
+    private static string SpecText(CallKind kind) => kind switch
+    {
+        CallKind.SuitedSuit => "规格：叫主（最低）",
+        CallKind.SuitedBoth => "规格：定主（比叫主大）",
+        CallKind.SmallNoTrump => "规格：小无主",
+        CallKind.BigNoTrump => "规格：大无主（最高）",
+        _ => string.Empty,
+    };
+
+    private Task Confirm(CallOption? option) => OnConfirm.InvokeAsync(option);
+}

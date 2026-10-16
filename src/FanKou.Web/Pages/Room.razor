@@ -1,0 +1,522 @@
+@page "/room"
+@page "/room/{Code}"
+@inject HttpClient Http
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PageTitle>@(_client?.Code is { } c ? $"房间 {c}" : "联机")</PageTitle>
+
+@if (!_ready || _client is null)
+{
+    <div class="boot">正在连接房间……</div>
+}
+else if (_connectError is not null)
+{
+    <div class="lobby">
+        <p class="lobby-error">@_connectError</p>
+        <a class="btn" href="/">回大厅</a>
+    </div>
+}
+else if (!_client.Started)
+{
+    <div class="lobby">
+        <h1 class="lobby-title">房间 @_client.Code</h1>
+        <p class="lobby-sub">把这个 4 位房号发给朋友，他们在大厅输入就能进来</p>
+
+        <div class="seat-list">
+            @foreach (var seat in _client.Seats)
+            {
+                var mine = !_client.IsWatcher && seat.Seat == _client.Seat;
+                <div class="seat-row @seat.Kind @(mine ? "mine" : "")">
+                    <span class="seat-pos">@SeatName(seat.Seat) 家</span>
+                    <span class="seat-who">@seat.Name</span>
+                    <span class="seat-flag">@KindText(seat)</span>
+
+                    <span class="seat-buttons">
+                        @if (seat.Kind == "empty")
+                        {
+                            @if (_client.IsHost)
+                            {
+                                <button class="btn small" @onclick="() => _client.AddBot(seat.Seat)">加人机</button>
+                            }
+                            <button class="btn small" @onclick="() => _client.SwitchTo(seat.Seat)">坐这儿</button>
+                        }
+                        else if (seat.Kind == "ai")
+                        {
+                            <button class="btn small" @onclick="() => _client.SwitchTo(seat.Seat)">顶掉它</button>
+                            @if (_client.IsHost)
+                            {
+                                <button class="btn small" @onclick="() => _client.RemoveBot(seat.Seat)">删掉</button>
+                            }
+                        }
+                        else if (mine)
+                        {
+                            <span class="lobby-note">你在这儿</span>
+                        }
+                        else
+                        {
+                            <button class="btn small" @onclick="() => _client.SwitchTo(seat.Seat)">换过来</button>
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+
+        <div class="watcher-list">
+            <span class="lobby-note">观战席（看不到手牌）：</span>
+            @foreach (var watcher in _client.Watchers)
+            {
+                var me = _client.WatchIndex == watcher.Index;
+                <span class="watcher-slot @(watcher.Connected ? "taken" : "") @(me ? "mine" : "")">
+                    @watcher.Name
+                    @if (me)
+                    {
+                        <span class="lobby-note">（你）</span>
+                    }
+                    else if (!watcher.Connected)
+                    {
+                        <button class="btn small" @onclick="() => _client.GoWatch(watcher.Index)">去观战</button>
+                    }
+                </span>
+            }
+        </div>
+
+        <div class="lobby-actions">
+            @if (_client.IsHost)
+            {
+                <button class="btn primary" disabled="@(!_client.Seats.All(s => s.Kind != "empty"))" @onclick="() => _client.StartGame()">开始</button>
+            }
+            else
+            {
+                <span class="lobby-note">等人齐了，由房主点开始。</span>
+            }
+        </div>
+
+        @if (_client.Error is { } error)
+        {
+            <p class="lobby-error">@error</p>
+        }
+
+        <p class="lobby-foot">四个人凑满才能开局；人不够就加人机。座位按加入顺序：南 → 北 → 东 → 西，先来的两个是对家。</p>
+    </div>
+}
+else
+{
+    <div class="game">
+        <header class="topbar">
+            <a class="btn small" href="/">← 大厅</a>
+            <span class="brand">房间 @_client.Code</span>
+            <span class="lobby-note">
+                @(_client.IsWatcher ? "你在观战" : $"你是 {SeatName(_client.Seat)} 家")
+            </span>
+            @if (_client.State?.AutoPlay == true)
+            {
+                <span class="lobby-error">托管中</span>
+            }
+        </header>
+
+        <TableArea View="_table" Skin="_skin" />
+
+        @if (_client.IsWatcher)
+        {
+            <footer class="bottombar">
+                <div class="status muted">你在观战席，看不到任何人的手牌</div>
+            </footer>
+        }
+        else
+        {
+            <HandPanel Cards="_hand"
+                       Skin="_skin"
+                       Selected="_selected"
+                       Interactive="CanPlay"
+                       OnToggle="ToggleCard" />
+
+            <footer class="bottombar">
+                <div class="status @StatusKind">@StatusText</div>
+                <div class="turn">@TurnText</div>
+                <div class="actions">
+                    <button class="btn" disabled="@(_selected.Count == 0)" @onclick="ClearSelection">清空</button>
+                    <button class="btn" disabled="@(_candidates.Length == 0)" @onclick="Hint">提示</button>
+                    <button class="btn primary" disabled="@(!CanPlay)" @onclick="Play">出牌</button>
+                </div>
+            </footer>
+        }
+    </div>
+
+    @if (_client.State?.Pending is { Kind: "call" } call)
+    {
+        <div class="overlay">
+            <div class="dialog call-dialog">
+                <h2 class="dialog-title">@(call.IsCounter ? "反主" : "叫主")</h2>
+                <p class="dialog-hint">
+                    @(call.IsCounter ? "对手已经叫了，你可以用更高的规格抢过来，不反也行。" : "有牌必须叫，选一个吧。")
+                </p>
+                @if (_secondsLeft > 0)
+                {
+                    <p class="dialog-countdown">还有 @_secondsLeft 秒，到点电脑替你定</p>
+                }
+
+                <div class="option-list">
+                    @for (var i = 0; i < call.Options.Length; i++)
+                    {
+                        var index = i;
+                        var option = call.Options[i];
+                        <button class="option @(_callChoice == index ? "selected" : "")" @onclick="() => _callChoice = index">
+                            <span class="option-text">
+                                <span class="option-title">@option.Text</span>
+                                <span class="option-sub">@option.Spec</span>
+                            </span>
+                            <span class="option-cards">
+                                @foreach (var card in Wire.Cards(option.ShowCards))
+                                {
+                                    <span class="mini-card"><CardView Card="card" Skin="_skin" /></span>
+                                }
+                            </span>
+                        </button>
+                    }
+                </div>
+
+                <div class="dialog-actions">
+                    @if (call.CanPass)
+                    {
+                        <button class="btn" @onclick="() => ConfirmCall(-1)">@(call.IsCounter ? "不反" : "让队友叫")</button>
+                    }
+                    <button class="btn primary" disabled="@(_callChoice < 0)" @onclick="() => ConfirmCall(_callChoice)">@(call.IsCounter ? "就反这个" : "就这样叫")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_client.State?.Pending is { Kind: "bottom" } swap)
+    {
+        <div class="overlay">
+            <div class="dialog swap-dialog">
+                <h2 class="dialog-title">换底牌 —— 从 33 张里挑 8 张扣回去</h2>
+                <div class="bottom-strip">
+                    <div class="strip-caption">锅底这 @swap.Bottom.Length 张（蓝边的就是它们）</div>
+                    <div class="strip-note">带金色锁的是叫主的明牌，不能扣</div>
+                </div>
+                <div class="count-line @(_swapSelected.Count == 8 ? "ready" : "")">
+                    @(_swapSelected.Count == 8 ? "已经选够 8 张，可以扣了" : $"已选 {_swapSelected.Count} / 8 张")
+                </div>
+
+                <HandPanel Cards="_swapPool"
+                           Skin="_skin"
+                           Selected="_swapSelected"
+                           LockedIds="_swapLocked"
+                           MarkedIds="_swapMarked"
+                           RowsOverride="2"
+                           OnToggle="ToggleSwap" />
+
+                <div class="dialog-actions">
+                    <button class="btn" @onclick="Reselect">重选</button>
+                    <button class="btn primary" disabled="@(_swapSelected.Count != 8)" @onclick="ConfirmSwap">扣这 8 张</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_client.Result is { } result)
+    {
+        <div class="overlay">
+            <div class="dialog result-dialog">
+                <h2 class="dialog-title accent">@result.OutcomeText</h2>
+                <div class="result-detail">
+                    <div>闲家捡到 @result.DefenderPoints 分，庄家扣掉 @result.DeclarerPoints 分</div>
+                    @if (!string.IsNullOrEmpty(result.BottomText))
+                    {
+                        <div>@result.BottomText</div>
+                    }
+                    <div>等级：@result.LevelBefore　→　@result.LevelAfter</div>
+                    <div class="result-next">@result.NextRoundText</div>
+                </div>
+                @if (result.Bottom.Length > 0)
+                {
+                    <div class="result-bottom">
+                        <span class="strip-note">底牌：</span>
+                        <span class="result-bottom-cards">
+                            @foreach (var card in Wire.Cards(result.Bottom))
+                            {
+                                <span class="mini-card"><CardView Card="card" Skin="_skin" /></span>
+                            }
+                        </span>
+                    </div>
+                }
+                <div class="dialog-actions">
+                    <button class="btn primary" @onclick="() => _client.NextRound()">@(result.RoomOver ? "重开一盘" : "下一局")</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string? Code { get; set; }
+
+    /// <summary>
+    /// 本地开发用：Blazor 的 dev server 不转 /ws，可以在这里显式给一个服务端地址。
+    /// 线上不传，走同源的 /ws（由 nginx 转给游戏服务端）。
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "ws")]
+    public string? WsUrl { get; set; }
+
+    private OnlineClient? _client;
+    private CardAssetSet? _skin;
+    private bool _ready;
+    private string? _connectError;
+
+    private TableView _table = TableView.Empty;
+    private IReadOnlyList<Card> _hand = [];
+    private HashSet<int> _selected = [];
+    private ComboDto[] _candidates = [];
+    private int _hintCursor;
+    private int _callChoice = -1;
+    private string _statusOverride = string.Empty;
+
+    private IReadOnlyList<Card> _swapPool = [];
+    private HashSet<int> _swapSelected = [];
+    private HashSet<int> _swapLocked = [];
+    private HashSet<int> _swapMarked = [];
+
+    private int _secondsLeft;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _skin = await CardAssetSet.LoadAsync(Http, "skins/cc0");
+
+        var client = new OnlineClient();
+        client.Changed += OnChanged;
+        _client = client;
+
+        try
+        {
+            await client.ConnectAsync(string.IsNullOrWhiteSpace(WsUrl) ? OnlineClient.BuildUrl(Nav.BaseUri) : WsUrl);
+            var name = "玩家" + Random.Shared.Next(10, 100);
+
+            if (string.IsNullOrWhiteSpace(Code))
+            {
+                client.Create(name);
+            }
+            else
+            {
+                client.Join(Code!, name);
+            }
+        }
+        catch (Exception ex)
+        {
+            _connectError = "连不上服务端：" + ex.Message;
+        }
+
+        _ready = true;
+    }
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    private void Refresh()
+    {
+        if (_client?.State is not { } state)
+        {
+            return;
+        }
+
+        // 永远把自己那一手摆在屏幕下方：换座位转的是方位，不是你坐的位置。
+        _table = TableView.From(state, _client?.IsWatcher == false && _client.Seat >= 0 ? (Seat)_client.Seat : Seat.South);
+        _hand = Wire.Cards(state.Hand);
+        _selected.RemoveWhere(id => _hand.All(c => c.Id != id));
+        _candidates = state.Pending is { Kind: "play" } play ? play.Candidates : [];
+        _secondsLeft = state.SecondsLeft;
+        _statusOverride = string.Empty;
+
+        if (state.Pending is { Kind: "call" } call && _callChoice < 0)
+        {
+            _callChoice = call.Options.Length - 1;
+        }
+        else if (state.Pending is not { Kind: "call" })
+        {
+            _callChoice = -1;
+        }
+
+        if (state.Pending is { Kind: "bottom" } swap)
+        {
+            _swapPool = Wire.Cards(swap.Pool);
+            _swapLocked = [.. swap.Locked];
+            _swapMarked = [.. swap.Bottom];
+            _swapSelected.RemoveWhere(id => _swapPool.All(c => c.Id != id));
+        }
+    }
+
+    private bool CanPlay => _client?.State?.Pending?.Kind == "play";
+
+    private string TurnText
+    {
+        get
+        {
+            if (!CanPlay)
+            {
+                return string.Empty;
+            }
+
+            return _secondsLeft > 0 ? $"● 你的回合（{_secondsLeft}）" : "● 你的回合";
+        }
+    }
+
+    private List<Card> SelectedCards() => _hand.Where(c => _selected.Contains(c.Id)).ToList();
+
+    private bool SelectionIsLegal()
+    {
+        var selected = _selected.OrderBy(id => id).ToArray();
+        return _candidates.Any(c => c.Cards.OrderBy(id => id).SequenceEqual(selected));
+    }
+
+    private string StatusText
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(_statusOverride))
+            {
+                return _statusOverride;
+            }
+
+            if (_client?.State?.Pending is { Kind: "bottom" })
+            {
+                return "轮到你换底牌";
+            }
+
+            if (CanPlay && _selected.Count > 0)
+            {
+                return SelectionIsLegal()
+                    ? $"可以出：{CardText.Format(SelectedCards())}"
+                    : "这么出不合规则（可以点「提示」看看）";
+            }
+
+            return _client?.State?.Status ?? string.Empty;
+        }
+    }
+
+    private string StatusKind
+    {
+        get
+        {
+            if (CanPlay && _selected.Count > 0)
+            {
+                return SelectionIsLegal() ? "ok" : "warn";
+            }
+
+            return "muted";
+        }
+    }
+
+    private void ToggleCard(Card card)
+    {
+        if (!_selected.Add(card.Id))
+        {
+            _selected.Remove(card.Id);
+        }
+
+        StateHasChanged();
+    }
+
+    private void ClearSelection()
+    {
+        _selected.Clear();
+        StateHasChanged();
+    }
+
+    private void Hint()
+    {
+        if (_candidates.Length == 0)
+        {
+            return;
+        }
+
+        _hintCursor = (_hintCursor + 1) % _candidates.Length;
+        _selected = [.. _candidates[_hintCursor].Cards];
+        StateHasChanged();
+    }
+
+    private void Play()
+    {
+        if (!CanPlay || !SelectionIsLegal())
+        {
+            _statusOverride = "这么出不合规则（可以点「提示」看看）";
+            StateHasChanged();
+            return;
+        }
+
+        var cards = SelectedCards();
+        _selected.Clear();
+        _client?.Play(cards);
+        StateHasChanged();
+    }
+
+    /// <summary>option 传 -1 表示不叫 / 不反。</summary>
+    private void ConfirmCall(int option)
+    {
+        _client?.Call(option);
+        _callChoice = -1;
+        StateHasChanged();
+    }
+
+    private void ToggleSwap(Card card)
+    {
+        if (_swapLocked.Contains(card.Id))
+        {
+            return;
+        }
+
+        if (!_swapSelected.Add(card.Id))
+        {
+            _swapSelected.Remove(card.Id);
+        }
+
+        StateHasChanged();
+    }
+
+    private void Reselect()
+    {
+        _swapSelected.Clear();
+        StateHasChanged();
+    }
+
+    private void ConfirmSwap()
+    {
+        var cards = _swapPool.Where(c => _swapSelected.Contains(c.Id)).ToList();
+
+        if (cards.Count == 8)
+        {
+            _client?.Bottom(cards);
+            _swapSelected.Clear();
+        }
+
+        StateHasChanged();
+    }
+
+    private static string SeatName(int seat) => seat switch
+    {
+        0 => "东",
+        1 => "南",
+        2 => "西",
+        3 => "北",
+        _ => "?",
+    };
+
+    private static string KindText(SeatInfo seat) => seat.Kind switch
+    {
+        "ai" => "人机",
+        "human" => seat.Connected ? "在线" : "掉线（托管中）",
+        _ => "空着",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_client is not null)
+        {
+            _client.Changed -= OnChanged;
+            await _client.DisposeAsync();
+        }
+    }
+}

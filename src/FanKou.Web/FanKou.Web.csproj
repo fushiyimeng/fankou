@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
+
+    <!-- 根 Directory.Build.props 设的是 false，那会把 ICU 文化数据（约 2MB）打进包体。
+         Core/Ai 里没有文化敏感操作（排序全按枚举和整数），可以安全关掉。 -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FanKou.Protocol\FanKou.Protocol.csproj" />
+    <ProjectReference Include="..\FanKou.Session\FanKou.Session.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 规则文档只有一份：改了根目录那份，网页版跟着变，不会出现程序和文档两边说法打架。
+         用 ASCII 名 rules-full.md 落地，免得浏览器 fetch 时还要处理中文路径编码。 -->
+    <Content Include="..\..\玩法说明.md" Link="wwwroot\rules-full.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\rules.json" Link="wwwroot\rules.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
+  </ItemGroup>
+
+</Project>

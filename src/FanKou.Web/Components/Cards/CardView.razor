@@ -1,0 +1,89 @@
+@*
+    一张牌的显示：只管「长什么样」，不管「摆在哪、和旁边叠多少」——那是外层容器的事。
+    Card 为 null 时画牌背。
+*@
+<div class="card @CssClass" @onclick="HandleClick">
+    @if (ImageUrl is { } url)
+    {
+        <img class="card-img" src="@url" alt="@AltText" draggable="false" />
+    }
+    else
+    {
+        @* 这套素材里没有这张牌。先给个能认出来的占位，下一步接自带矢量画法补上。 *@
+        <div class="card-missing">
+            <span>@AltText</span>
+        </div>
+    }
+
+    @if (Locked)
+    {
+        <span class="card-lock" title="叫主明牌，不能扣">🔒</span>
+    }
+</div>
+
+@code {
+    /// <summary>要显示哪张牌；null 表示牌背。</summary>
+    [Parameter] public Card? Card { get; set; }
+
+    /// <summary>当前使用的素材；为 null 或该牌缺图时退到占位。</summary>
+    [Parameter] public CardAssetSet? Skin { get; set; }
+
+    /// <summary>能不能点选（出牌时的手牌才可点）。</summary>
+    [Parameter] public bool Selectable { get; set; }
+
+    /// <summary>已选中（会抬起来）。</summary>
+    [Parameter] public bool Selected { get; set; }
+
+    /// <summary>叫主明牌，带金锁，换底时不能扣。</summary>
+    [Parameter] public bool Locked { get; set; }
+
+    /// <summary>换底时从锅底拿上来的牌，加蓝边标记。</summary>
+    [Parameter] public bool Marked { get; set; }
+
+    /// <summary>点中这张牌（只在 Selectable 为真时触发）。</summary>
+    [Parameter] public EventCallback<Card> OnActivate { get; set; }
+
+    private string? ImageUrl => Card is { } card ? Skin?.UrlFor(card) : Skin?.BackUrl;
+
+    private string AltText => Card?.ToString() ?? "牌背";
+
+    private string CssClass
+    {
+        get
+        {
+            var classes = new List<string>();
+
+            if (Card is null)
+            {
+                classes.Add("card-back");
+            }
+
+            if (Selectable)
+            {
+                classes.Add("selectable");
+            }
+
+            if (Selected)
+            {
+                classes.Add("selected");
+            }
+
+            if (Marked)
+            {
+                classes.Add("marked");
+            }
+
+            return string.Join(' ', classes);
+        }
+    }
+
+    private async Task HandleClick()
+    {
+        if (!Selectable || Card is not { } card)
+        {
+            return;
+        }
+
+        await OnActivate.InvokeAsync(card);
+    }
+}

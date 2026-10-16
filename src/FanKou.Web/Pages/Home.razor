@@ -1,0 +1,504 @@
+@page "/solo"
+@inject HttpClient Http
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>双扣（方扣）</PageTitle>
+
+@if (_session is null)
+{
+    <div class="boot">正在加载牌面与规则……</div>
+}
+else
+{
+    <div class="game">
+        <header class="topbar">
+            <a class="btn small" href="/">← 大厅</a>
+            <span class="brand">单机</span>
+
+            <select class="picker" @bind="_level" @bind:after="ApplyLevel">
+                @foreach (var level in AllLevels)
+                {
+                    <option value="@level">@BrainFactory.Name(level)</option>
+                }
+            </select>
+
+            <button class="btn small" @onclick="NewMatch">新的一盘</button>
+            <button class="btn small" @onclick="() => _showLog = true">牌局记录</button>
+            <button class="btn small" @onclick="() => _showRules = true">规则说明</button>
+            <button class="btn small" @onclick="ToggleJokerOption">
+                王对算连对：@(_options.JokerPairChainIsTractor ? "开" : "关")
+            </button>
+        </header>
+
+        <TableArea View="_table" Skin="_skin" />
+
+        <HandPanel Cards="_hand"
+                   Skin="_skin"
+                   Selected="_selected"
+                   Interactive="CanPlay"
+                   OnToggle="ToggleCard" />
+
+        <footer class="bottombar">
+            <div class="status @StatusKind">@StatusText</div>
+            <div class="turn">@TurnText</div>
+            <div class="actions">
+                <button class="btn" @onclick="ToggleAuto">@(_session.AutoPlayHuman ? "收回托管" : "托管")</button>
+                <button class="btn" disabled="@(_selected.Count == 0)" @onclick="ClearSelection">清空</button>
+                <button class="btn" disabled="@(!_session.CanUndo)" @onclick="Undo">撤回</button>
+                <button class="btn" disabled="@(_session.HumanCandidates.Count == 0)" @onclick="Hint">提示</button>
+                <button class="btn primary" disabled="@(!CanPlay)" @onclick="Play">出牌</button>
+            </div>
+        </footer>
+    </div>
+
+    @if (_dialog == DialogKind.Call && _session.HumanPending is PendingDecision.NeedCall call)
+    {
+        <CallDialog Pending="call" Skin="_skin" SecondsLeft="_session.HumanSecondsLeft" OnConfirm="ConfirmCall" />
+    }
+
+    @if (_dialog == DialogKind.Swap && _session.HumanPending is PendingDecision.NeedBottomSwap swap)
+    {
+        <BottomSwapDialog Pending="swap" Skin="_skin" Trump="_session.Engine.Trump" OnConfirm="ConfirmSwap" />
+    }
+
+    @if (_summary is { } summary)
+    {
+        <RoundResultDialog Summary="summary" Skin="_skin" OnConfirm="ConfirmSummary" />
+    }
+
+    @if (_showLog)
+    {
+        <LogDialog Log="_session.Log" OnClose="() => _showLog = false" />
+    }
+
+    @if (_showRules)
+    {
+        <RulesDialog OnClose="() => _showRules = false" />
+    }
+}
+
+@code {
+    private enum DialogKind
+    {
+        None,
+        Call,
+        Swap,
+    }
+
+    private static readonly AiLevel[] AllLevels =
+        [AiLevel.Beginner, AiLevel.Simple, AiLevel.Normal, AiLevel.Hard];
+
+    private GameSession? _session;
+    private CardAssetSet? _skin;
+    private RuleOptions _options = RuleOptions.Default;
+    private AiLevel _level = AiLevel.Normal;
+
+    private TableSnapshot _snapshot = TableSnapshot.Empty;
+    private TableView _table = TableView.Empty;
+    private IReadOnlyList<Card> _hand = [];
+    private HashSet<int> _selected = [];
+
+    private DialogKind _dialog;
+    private RoundSummary? _summary;
+    private bool _showLog;
+    private bool _showRules;
+
+    private string _statusOverride = string.Empty;
+    private int _hintCursor;
+
+    private DotNetObjectReference<Home>? _self;
+
+    /// <summary>URL 上带 <c>?auto=1</c> 时开局就托管，用来"看四个 AI 打"或者自动截图检查界面。</summary>
+    [SupplyParameterFromQuery(Name = "auto")]
+    public string? Auto { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _options = await LoadOptionsAsync();
+        _skin = await CardAssetSet.LoadAsync(Http, "skins/cc0");
+        NewMatch();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _self = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("fankou.attachKeys", _self);
+    }
+
+    // ------------------------------------------------------------ 开局
+
+    private void NewMatch()
+    {
+        if (_session is not null)
+        {
+            _session.Changed -= OnSessionChanged;
+            _session.RoundFinished -= OnRoundFinished;
+            _session.AutoPlayChanged -= OnSessionChanged;
+            _session.CountdownChanged -= OnCountdown;
+            _session.Dispose();
+        }
+
+        var session = GameSession.CreateSinglePlayer(_level, _options);
+        session.Changed += OnSessionChanged;
+        session.RoundFinished += OnRoundFinished;
+        session.AutoPlayChanged += OnSessionChanged;
+        session.CountdownChanged += OnCountdown;
+
+        _session = session;
+        _selected.Clear();
+        _hintCursor = 0;
+        _statusOverride = string.Empty;
+        _summary = null;
+        _dialog = DialogKind.None;
+
+        Refresh();
+        session.Start();
+
+        if (Auto == "1")
+        {
+            session.SetAutoPlay(true);
+        }
+    }
+
+    private void ApplyLevel()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var rng = new FanKou.Core.Util.SeededRandomSource(Random.Shared.Next());
+        _session.UpdateBrains(Seats.All.ToDictionary(seat => seat, _ => BrainFactory.Create(_level, rng)));
+        StateHasChanged();
+    }
+
+    private async Task ToggleJokerOption()
+    {
+        _options = _options with { JokerPairChainIsTractor = !_options.JokerPairChainIsTractor };
+        _session?.ApplyOptions(_options);
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "fankou.rules", RuleOptions.ToJson(_options));
+        }
+        catch (Exception)
+        {
+            // 存不了就算了，本地设置而已。
+        }
+    }
+
+    // ------------------------------------------------------------ 会话事件
+
+    private void OnSessionChanged() => _ = InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    private void OnCountdown() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnRoundFinished(RoundSummary summary) => _ = InvokeAsync(() =>
+    {
+        _summary = summary;
+        StateHasChanged();
+    });
+
+    private void Refresh()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        _snapshot = _session.Snapshot();
+        _table = TableView.From(_snapshot, _session.Engine);
+        _hand = CardSorter.ForDisplay(_session.HumanHand, _session.Engine.Trump);
+
+        // 手牌变了就把已经不存在的选中项丢掉（撤回、出牌之后常见）。
+        _selected.RemoveWhere(id => _hand.All(c => c.Id != id));
+
+        _dialog = _session.HumanPending switch
+        {
+            PendingDecision.NeedCall => DialogKind.Call,
+            PendingDecision.NeedBottomSwap => DialogKind.Swap,
+            _ => DialogKind.None,
+        };
+    }
+
+    // ------------------------------------------------------------ 出牌交互
+
+    private bool CanPlay => _session?.HumanPending is PendingDecision.NeedPlay && _session.AutoPlayHuman is false;
+
+    private string TurnText
+    {
+        get
+        {
+            if (_session?.HumanPending is not PendingDecision.NeedPlay)
+            {
+                return string.Empty;
+            }
+
+            return _session.HumanSecondsLeft > 0
+                ? $"● 你的回合（{_session.HumanSecondsLeft}）"
+                : "● 你的回合";
+        }
+    }
+
+    private string StatusText
+    {
+        get
+        {
+            if (_session is null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrEmpty(_statusOverride))
+            {
+                return _statusOverride;
+            }
+
+            var selected = SelectedCards();
+            if (CanPlay && selected.Count > 0)
+            {
+                var check = _session.ValidateSelection(selected);
+                return check.IsValid ? $"可以出：{CardText.Format(selected)}" : check.Reason;
+            }
+
+            return _session.Status;
+        }
+    }
+
+    private string StatusKind
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(_statusOverride))
+            {
+                return "danger";
+            }
+
+            var selected = SelectedCards();
+            if (CanPlay && selected.Count > 0)
+            {
+                return _session!.ValidateSelection(selected).IsValid ? "ok" : "warn";
+            }
+
+            return "muted";
+        }
+    }
+
+    private List<Card> SelectedCards() => _hand.Where(c => _selected.Contains(c.Id)).ToList();
+
+    private void ToggleCard(Card card)
+    {
+        _statusOverride = string.Empty;
+
+        if (!_selected.Add(card.Id))
+        {
+            _selected.Remove(card.Id);
+        }
+
+        StateHasChanged();
+    }
+
+    private void ClearSelection()
+    {
+        _selected.Clear();
+        _statusOverride = string.Empty;
+        StateHasChanged();
+    }
+
+    private Task Play()
+    {
+        if (_session?.HumanPending is not PendingDecision.NeedPlay)
+        {
+            return Task.CompletedTask;
+        }
+
+        var selected = SelectedCards();
+        var check = _session.ValidateSelection(selected);
+
+        if (!check.IsValid)
+        {
+            _statusOverride = check.Reason;
+            StateHasChanged();
+            return Task.CompletedTask;
+        }
+
+        _selected.Clear();
+        _statusOverride = string.Empty;
+        _session.SubmitPlay(selected);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void Hint()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        var candidates = _session.HumanCandidates;
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        // 桌面版第一次点提示给的是第 2 个候选（游标先自增），这里保持一致。
+        _hintCursor = (_hintCursor + 1) % candidates.Count;
+        _selected = candidates[_hintCursor].Cards.Select(c => c.Id).ToHashSet();
+        _statusOverride = string.Empty;
+        StateHasChanged();
+    }
+
+    private void Undo()
+    {
+        if (_session?.Undo() == true)
+        {
+            _selected.Clear();
+            _statusOverride = string.Empty;
+        }
+
+        StateHasChanged();
+    }
+
+    private void ToggleAuto()
+    {
+        _session?.SetAutoPlay(_session.AutoPlayHuman is false);
+        StateHasChanged();
+    }
+
+    // ------------------------------------------------------------ 对话框回调
+
+    private Task ConfirmCall(CallOption? option)
+    {
+        _session?.SubmitCall(option);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task ConfirmSwap(IReadOnlyList<Card> discards)
+    {
+        if (_session?.HumanPending is PendingDecision.NeedBottomSwap && discards.Count == 8)
+        {
+            _session.SubmitBottomDiscards(discards);
+        }
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void ConfirmSummary()
+    {
+        var summary = _summary;
+        _summary = null;
+
+        if (summary is null || _session is null)
+        {
+            return;
+        }
+
+        if (summary.RoomOver)
+        {
+            NewMatch();
+        }
+        else
+        {
+            _session.StartNextRound();
+        }
+
+        StateHasChanged();
+    }
+
+    // ------------------------------------------------------------ 键盘
+
+    [JSInvokable]
+    public Task OnKeyDown(string key, bool ctrl)
+    {
+        if (_session is null || _session.IsDealing)
+        {
+            return Task.CompletedTask;
+        }
+
+        switch (key)
+        {
+            case "Enter":
+                return Play();
+
+            case " ":
+                Hint();
+                return Task.CompletedTask;
+
+            case "z":
+            case "Z" when ctrl:
+                Undo();
+                return Task.CompletedTask;
+
+            default:
+                return Task.CompletedTask;
+        }
+    }
+
+    // ------------------------------------------------------------ 配置
+
+    private async Task<RuleOptions> LoadOptionsAsync()
+    {
+        var options = RuleOptions.Default;
+
+        try
+        {
+            // WASM 里没有文件系统，不能用 RuleOptionsLoader，直接读构建时复制进来的那份。
+            options = RuleOptions.FromJson(await Http.GetStringAsync("rules.json"));
+        }
+        catch (Exception)
+        {
+            // 读不到就用默认值。
+        }
+
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "fankou.rules");
+            if (!string.IsNullOrWhiteSpace(saved))
+            {
+                options = RuleOptions.FromJson(saved);
+            }
+        }
+        catch (Exception)
+        {
+            // 没有 localStorage 就忽略。
+        }
+
+        return options;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("fankou.detachKeys");
+        }
+        catch (Exception)
+        {
+            // 忽略
+        }
+
+        if (_session is not null)
+        {
+            _session.Changed -= OnSessionChanged;
+            _session.RoundFinished -= OnRoundFinished;
+            _session.AutoPlayChanged -= OnSessionChanged;
+            _session.CountdownChanged -= OnCountdown;
+            _session.Dispose();
+        }
+
+        _self?.Dispose();
+    }
+}

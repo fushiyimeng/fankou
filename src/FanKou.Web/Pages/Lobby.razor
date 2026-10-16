@@ -1,0 +1,46 @@
+@page "/"
+
+<PageTitle>双扣（方扣）</PageTitle>
+
+<div class="lobby">
+    <h1 class="lobby-title">双扣（方扣）</h1>
+    <p class="lobby-sub">4 人两副牌 108 张 · 对家一伙</p>
+
+    <div class="lobby-cards">
+        <a class="lobby-card" href="/solo">
+            <span class="lobby-name">单人（打人机）</span>
+            <span class="lobby-note">三个电脑陪打，开箱即玩</span>
+        </a>
+
+        <a class="lobby-card" href="/room">
+            <span class="lobby-name">创建房间</span>
+            <span class="lobby-note">生成 4 位房号，发给朋友就行</span>
+        </a>
+
+        <div class="lobby-card">
+            <span class="lobby-name">加入房间</span>
+            <span class="lobby-note">输入朋友给你的 4 位房号</span>
+            <div class="join-row">
+                <input class="code-input"
+                       maxlength="4"
+                       inputmode="numeric"
+                       placeholder="0000"
+                       value="@_code"
+                       @oninput="OnCodeInput" />
+                <a class="btn primary @(_code.Length == 4 ? "" : "is-disabled")" href="@($"/room/{_code}")">进去</a>
+            </div>
+        </div>
+    </div>
+
+    <p class="lobby-foot">联机需要服务端在线；四个位子凑满了才能开局，人不够可以用「添加人机」补上。</p>
+</div>
+
+@code {
+    private string _code = string.Empty;
+
+    private void OnCodeInput(ChangeEventArgs args)
+    {
+        var text = args.Value?.ToString() ?? string.Empty;
+        _code = new string([.. text.Where(char.IsAsciiDigit).Take(4)]);
+    }
+}

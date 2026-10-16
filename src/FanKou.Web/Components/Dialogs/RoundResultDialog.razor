@@ -1,0 +1,46 @@
+@*
+    一局结算：谁赢、底牌翻开是什么、等级怎么变。
+*@
+
+<div class="overlay">
+    <div class="dialog result-dialog">
+        <h2 class="dialog-title accent">@Summary.OutcomeText</h2>
+
+        <div class="result-detail">
+            <div>闲家捡到 @Summary.DefenderPoints 分，庄家扣掉 @Summary.DeclarerPoints 分</div>
+            @if (!string.IsNullOrEmpty(Summary.BottomText))
+            {
+                <div>@Summary.BottomText</div>
+            }
+            <div>等级：@Summary.LevelBefore　→　@Summary.LevelAfter</div>
+            <div class="result-next">@Summary.NextRoundText</div>
+        </div>
+
+        @if (Summary.Bottom.Count > 0)
+        {
+            <div class="result-bottom">
+                <span class="strip-note">底牌：</span>
+                <span class="result-bottom-cards">
+                    @foreach (var card in Summary.Bottom)
+                    {
+                        <span class="mini-card"><CardView Card="card" Skin="Skin" /></span>
+                    }
+                </span>
+            </div>
+        }
+
+        <div class="dialog-actions">
+            <button class="btn primary" @onclick="() => OnConfirm.InvokeAsync()">
+                @(Summary.RoomOver ? "重开一局" : "下一局")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public RoundSummary Summary { get; set; } = new();
+
+    [Parameter] public CardAssetSet? Skin { get; set; }
+
+    [Parameter] public EventCallback OnConfirm { get; set; }
+}

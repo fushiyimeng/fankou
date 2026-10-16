@@ -1,0 +1,59 @@
+@page "/preview"
+@inject HttpClient Http
+
+@*
+    开发用的牌面预览页：把整副牌平铺出来，用来肉眼比对素材挂上来的效果。
+    桌面版也有这么个东西（Ui/Rendering/CardSheet.cs 的 --render-sheet）。
+*@
+
+<PageTitle>牌面预览</PageTitle>
+
+<h1>牌面预览</h1>
+
+@if (_assets is null)
+{
+    <p>素材没加载上——检查 <code>wwwroot/skins/cc0/index.json</code>。</p>
+}
+else
+{
+    <p class="preview-meta">
+        <strong>@_assets.Name</strong> ·
+        认到 @_assets.CardCount / 54 张 ·
+        @_assets.Author
+    </p>
+
+    <div class="preview-grid">
+        @foreach (var card in AllCards())
+        {
+            <CardView Card="card" Skin="_assets" />
+        }
+
+        @* 牌背单独看一张。 *@
+        <CardView Card="_backCard" Skin="_assets" />
+    </div>
+}
+
+@code {
+    private CardAssetSet? _assets;
+
+    private readonly Card? _backCard = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _assets = await CardAssetSet.LoadAsync(Http, "skins/cc0");
+    }
+
+    private static IEnumerable<Card> AllCards()
+    {
+        foreach (var suit in Suits.All)
+        {
+            foreach (var rank in Ranks.Standard)
+            {
+                yield return new Card(suit, rank, 0);
+            }
+        }
+
+        yield return new Card(Suit.Joker, Rank.SmallJoker, 0);
+        yield return new Card(Suit.Joker, Rank.BigJoker, 0);
+    }
+}

@@ -1,0 +1,22 @@
+services:
+  fankou-web:
+    image: nginx:alpine
+    container_name: fankou-web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    networks:
+      - default
+      # 接进 portal 所在的网络，443 上的 vhost 才能按容器名反代过来。
+      - gobot
+    # 联机服务端跑在宿主机上（systemd），容器要能按名字找到它。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./wwwroot:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+networks:
+  gobot:
+    external: true
+    name: go-bot_astrbot_network

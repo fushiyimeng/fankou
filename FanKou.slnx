@@ -3,13 +3,19 @@
     <Project Path="src/FanKou.Ai/FanKou.Ai.csproj" />
     <Project Path="src/FanKou.App/FanKou.App.csproj" />
     <Project Path="src/FanKou.Core/FanKou.Core.csproj" />
+    <Project Path="src/FanKou.Protocol/FanKou.Protocol.csproj" />
+    <Project Path="src/FanKou.Server/FanKou.Server.csproj" />
+    <Project Path="src/FanKou.Session/FanKou.Session.csproj" />
     <Project Path="src/FanKou.Ui/FanKou.Ui.csproj" />
+    <Project Path="src/FanKou.Web/FanKou.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FanKou.Core.Tests/FanKou.Core.Tests.csproj" />
+    <Project Path="tests/FanKou.Session.Tests/FanKou.Session.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/FanKou.Trace/FanKou.Trace.csproj" />
     <Project Path="tools/FanKou.Bench/FanKou.Bench.csproj" />
+    <Project Path="tools/FanKou.SessionCheck/FanKou.SessionCheck.csproj" />
   </Folder>
 </Solution>

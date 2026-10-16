@@ -1,0 +1,70 @@
+@*
+    牌桌：四家的座位名牌 + 出牌区，中间一块信息面板。
+    相对方位照抄桌面版 TableSurface 的公式 ((seat - humanSeat + 4) % 4)：
+    0=自己（下）、1=西（左）、2=对家（上）、3=东（右）。
+*@
+
+<div class="table">
+    @foreach (var seat in Seats.All)
+    {
+        var rel = ((int)seat - (int)View.HumanSeat + 4) % 4;
+        var team = seat.TeamOf();
+        var isDeclarerSeat = View.DeclarerSeat == seat;
+        var isDeclarerTeam = View.DeclarerSeat is not null && View.DeclarerTeam == team;
+        var played = View.Trick.FirstOrDefault(p => p.Seat == seat);
+        var shown = played is null && View.ShownCardsSeat == seat && View.ShownCards.Count > 0;
+
+        <div class="seat-cell rel-@rel @(isDeclarerSeat ? "is-declarer-seat" : "")">
+            <div class="seat-badge">
+                <span class="seat-name">@seat.Name() 家</span>
+                <span class="seat-sub seat-team">@team.Name() · 打 @View.TeamLevelText[(int)team]</span>
+                <span class="seat-sub seat-count">
+                    剩 @(View.Remaining.Count > (int)seat ? View.Remaining[(int)seat] : 0) 张@(isDeclarerTeam ? " · 庄" : "")
+                </span>
+            </div>
+
+            <div class="play-area">
+                @if (played is not null)
+                {
+                    <div class="play-cards">
+                        @foreach (var card in played.Cards)
+                        {
+                            <span class="play-card"><CardView Card="card" Skin="Skin" /></span>
+                        }
+                    </div>
+                    <div class="play-label">@seat.Name()</div>
+                }
+                else if (shown)
+                {
+                    <div class="play-cards">
+                        @foreach (var card in View.ShownCards)
+                        {
+                            <span class="play-card"><CardView Card="card" Skin="Skin" /></span>
+                        }
+                    </div>
+                    <div class="play-label shown">明牌（@seat.Name() 家叫主）</div>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="info-panel">
+        <div class="info-line info-title">
+            <span class="nowrap">主牌 @View.TrumpText</span>
+            <span class="nowrap">级牌 @View.LevelText</span>
+        </div>
+        <div class="info-line">
+            庄家 @(View.DeclarerSeat is { } ds ? $"{ds.Name()} 家（{ds.TeamOf().Name()}）" : "还没定")
+        </div>
+        <div class="info-line">闲家 @View.DefenderPoints 分 · 庄家扣 @View.DeclarerPoints 分</div>
+        <div class="info-line info-muted">
+            第 @View.TrickNumber 轮　剩余：@string.Join("  ", Seats.All.Select(s => $"{s.Name()}{((int)s < View.Remaining.Count ? View.Remaining[(int)s] : 0)}"))
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public TableView View { get; set; } = TableView.Empty;
+
+    [Parameter] public CardAssetSet? Skin { get; set; }
+}
