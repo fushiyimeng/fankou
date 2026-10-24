@@ -165,3 +165,16 @@ src/FanKou.App/      WinForms 主程序
 tools/FanKou.Trace/  命令行规则自检工具
 tests/               单元测试（含一万局无界面自打）
 ```
+
+---
+
+## 下载
+
+不想自己编译的话，直接去 [Releases](https://github.com/fushiyimeng/fankou/releases) 拿：
+
+| 包 | 说明 |
+|---|---|
+| `fankou-v1.0.0-win-x64.zip` | **直接能玩**。解压后双击 `FanKou.App.exe`，自带运行时，不用装 .NET |
+| `fankou-v1.0.0-source.zip` | 源码。要自己编译看下面的「怎么跑」 |
+
+> 只支持 Windows 10（1809+）/ Windows 11，64 位。
